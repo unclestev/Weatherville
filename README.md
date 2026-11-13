@@ -2,10 +2,10 @@
 
 A customizable weather map that runs entirely in the browser from free, keyless data feeds. One file, no build step, no backend.
 
-**Live:** https://unclestev.github.io/weatherville/ (after GitHub Pages is turned on: Settings → Pages → Deploy from branch → `main` / root)
+**Live:** https://unclestev.github.io/Weatherville/ (after GitHub Pages is turned on: Settings → Pages → Deploy from branch → `main` / root)
 
 ## Features
-- Seven base maps, with place names drawn above the weather
+- Eight base maps, with place names drawn above the weather
 - Radar loop: US NEXRAD (5-minute frames) or RainViewer worldwide
 - GOES / VIIRS satellite, US warning polygons, a grid of model values across the map
 - Current conditions, draggable hourly charts, 7–16 day outlook, air quality, US alerts
@@ -19,7 +19,7 @@ A customizable weather map that runs entirely in the browser from free, keyless 
 | Global radar | [RainViewer](https://www.rainviewer.com/) (personal use, attribution required) |
 | Satellite | [NASA GIBS](https://earthdata.nasa.gov/gibs) |
 | Alerts | [US National Weather Service](https://www.weather.gov/documentation/services-web-api) |
-| Base maps | OpenStreetMap contributors, CARTO, Esri, OpenTopoMap, USGS |
+| Base maps | Esri, OpenStreetMap contributors, OpenTopoMap, USGS |
 | Reverse place names | BigDataCloud |
 
 ## Run locally

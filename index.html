@@ -281,22 +281,23 @@ map.createPane('wx').style.zIndex=350;
 const lblPane=map.createPane('lbl');lblPane.style.zIndex=450;lblPane.style.pointerEvents='none';
 {const tr=document.querySelector('.leaflet-top.leaflet-right');if(tr)tr.style.top='52px'}
 
-const CT='https://{s}.basemaps.cartocdn.com/',AO='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',AC=AO+' &copy; <a href="https://carto.com/attributions">CARTO</a>';
+const AO='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',ES='https://server.arcgisonline.com/ArcGIS/rest/services/',ET='/MapServer/tile/{z}/{y}/{x}',AE='Tiles &copy; <a href="https://www.esri.com/">Esri</a>';
 const BASES={
-  dark:{n:'Dark',u:CT+'dark_nolabels/{z}/{x}/{y}{r}.png',l:CT+'dark_only_labels/{z}/{x}/{y}{r}.png',z:20,a:AC,s:'abcd'},
-  light:{n:'Light',u:CT+'light_nolabels/{z}/{x}/{y}{r}.png',l:CT+'light_only_labels/{z}/{x}/{y}{r}.png',z:20,a:AC,s:'abcd'},
-  voyager:{n:'Streets',u:CT+'rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png',l:CT+'rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png',z:20,a:AC,s:'abcd'},
-  imagery:{n:'Satellite photo',u:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',l:CT+'dark_only_labels/{z}/{x}/{y}{r}.png',z:19,a:'Imagery &copy; Esri, Maxar, Earthstar Geographics; labels '+AC,s:'abcd'},
-  topo:{n:'Terrain',u:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',z:17,a:AO+', SRTM | &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)',s:'abc'},
-  usgs:{n:'USGS topo',u:'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',z:16,a:'USGS The National Map',s:'abc'},
-  osm:{n:'OpenStreetMap',u:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',z:19,a:AO,s:'abc'}
+  dark:{n:'Dark',u:ES+'Canvas/World_Dark_Gray_Base'+ET,l:ES+'Canvas/World_Dark_Gray_Reference'+ET,z:16,lz:16,a:AE+', HERE, Garmin, '+AO},
+  light:{n:'Light',u:ES+'Canvas/World_Light_Gray_Base'+ET,l:ES+'Canvas/World_Light_Gray_Reference'+ET,z:16,lz:16,a:AE+', HERE, Garmin, '+AO},
+  voyager:{n:'Streets',u:ES+'World_Street_Map'+ET,z:19,a:AE+', HERE, Garmin, USGS'},
+  imagery:{n:'Satellite photo',u:ES+'World_Imagery'+ET,l:ES+'Reference/World_Boundaries_and_Places'+ET,z:19,lz:19,a:'Imagery &copy; Esri, Maxar, Earthstar Geographics'},
+  topo:{n:'Terrain',u:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',z:17,a:AO+', SRTM | &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)'},
+  esritopo:{n:'Esri topo',u:ES+'World_Topo_Map'+ET,z:19,a:AE+', HERE, Garmin, USGS'},
+  usgs:{n:'USGS topo',u:'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',z:16,a:'USGS The National Map'},
+  osm:{n:'OpenStreetMap',u:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',z:19,a:AO}
 };
 let baseL,labelL;
 function syncBase(){
   if(baseL)map.removeLayer(baseL);if(labelL)map.removeLayer(labelL);labelL=null;
   const b=BASES[S.base]||BASES.dark;
-  baseL=L.tileLayer(b.u,{maxNativeZoom:b.z,maxZoom:19,attribution:b.a,subdomains:b.s}).addTo(map);
-  if(b.l)labelL=L.tileLayer(b.l,{maxNativeZoom:20,maxZoom:19,subdomains:'abcd',pane:S.labelsTop?'lbl':'tilePane',zIndex:2}).addTo(map);
+  baseL=L.tileLayer(b.u,{maxNativeZoom:b.z,maxZoom:19,attribution:b.a}).addTo(map);
+  if(b.l)labelL=L.tileLayer(b.l,{maxNativeZoom:b.lz,maxZoom:19,pane:S.labelsTop?'lbl':'tilePane',zIndex:2}).addTo(map);
 }
 
 const pin=L.marker([S.loc.lat,S.loc.lon],{icon:L.divIcon({className:'',html:'<div class="pin"></div>',iconSize:[18,18],iconAnchor:[9,9]}),interactive:false,zIndexOffset:1000}).addTo(map);
@@ -586,7 +587,7 @@ function aboutHTML(){
   <li><a href="https://www.rainviewer.com/">RainViewer</a>: global radar mosaic, 10-minute frames, personal use.</li>
   <li><a href="https://earthdata.nasa.gov/gibs">NASA GIBS</a>: GOES and VIIRS satellite imagery.</li>
   <li><a href="https://www.weather.gov/documentation/services-web-api">US National Weather Service</a>: watches, warnings and advisories.</li>
-  <li>Base maps: OpenStreetMap contributors, CARTO, Esri, OpenTopoMap, USGS.</li>
+  <li>Base maps: Esri, OpenStreetMap contributors, OpenTopoMap, USGS.</li>
   <li>Place names for tapped points: BigDataCloud.</li></ul>
   <p class="note">Every feed is free and needs no key. Your settings and saved places stay in this browser.</p>`;
 }
