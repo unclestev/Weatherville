@@ -2,7 +2,15 @@
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#141c2a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Weatherville">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
 <title>Weatherville</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600&display=swap" rel="stylesheet">
@@ -15,7 +23,7 @@
   --good:#3fae6a; --warn:#d99a1e; --bad:#d6493f;
   --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
   --body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
-  --sh:132px; color-scheme:light;
+  --sb:env(safe-area-inset-bottom,0px); --st:env(safe-area-inset-top,0px); --sh:calc(132px + var(--sb)); color-scheme:light;
 }
 :root[data-theme="dark"]{
   --bg:#0d131e; --panel:#141c2a; --panel2:#1b2536; --line:#2a364e; --ink:#e9eef6; --mut:#93a1ba;
@@ -23,12 +31,12 @@
   color-scheme:dark;
 }
 *{box-sizing:border-box}
-html,body{height:100%;margin:0}
+html,body{height:100%;margin:0;overscroll-behavior:none}
 body{background:var(--bg);color:var(--ink);font:400 15px/1.4 var(--body);overflow:hidden}
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-#app{position:relative;height:100%}
+#app{position:fixed;left:0;right:0;top:0;height:100%;height:100dvh}
 #map{position:absolute;inset:0;background:var(--bg)}
 .leaflet-container{font:inherit;background:var(--bg)}
 .leaflet-bottom{bottom:var(--sh)}
@@ -37,7 +45,7 @@ button{cursor:pointer}
 .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--panel);color:var(--ink)}
 
 /* top bar */
-#top{position:absolute;z-index:1100;top:10px;left:10px;right:10px;display:flex;gap:8px;align-items:flex-start}
+#top{position:absolute;z-index:1100;top:calc(10px + var(--st));left:calc(10px + env(safe-area-inset-left,0px));right:calc(10px + env(safe-area-inset-right,0px));display:flex;gap:8px;align-items:flex-start}
 .search{position:relative;flex:1;max-width:400px}
 .search input{width:100%;height:42px;border-radius:10px;border:1px solid var(--line);background:var(--panel);padding:0 12px;box-shadow:0 2px 10px rgba(0,0,0,.25)}
 #results{position:absolute;top:46px;left:0;right:0;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;display:none}
@@ -57,9 +65,27 @@ button{cursor:pointer}
 #ftime{font:600 15px var(--display);letter-spacing:.02em;min-width:74px;text-align:right;font-variant-numeric:tabular-nums}
 #fsrc{font-size:11px;color:var(--mut);white-space:nowrap}
 
+/* legend + locate */
+#fab{position:absolute;z-index:1090;right:10px;bottom:calc(var(--sh) + 84px);width:48px;height:48px;border-radius:50%;border:1px solid var(--line);background:var(--panel);display:grid;place-items:center;box-shadow:0 2px 10px rgba(0,0,0,.35)}
+#fab svg{width:22px;height:22px}
+#fab.on{color:#2f8cff}
+#fab.busy{opacity:.6}
+#legend{position:absolute;z-index:1089;left:10px;bottom:calc(var(--sh) + 84px);width:min(230px,calc(100% - 78px));background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.25);font-size:11px}
+#legend:empty{display:none}
+#lgh{display:flex;justify-content:space-between;align-items:center;width:100%;border:0;background:none;padding:5px 9px;font:600 13px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--mut)}
+#legend.min .lgb{display:none}
+.lgb{padding:0 9px 7px}
+.lg{margin-bottom:6px}
+.lg:last-child{margin-bottom:0}
+.lg .t{color:var(--ink);font-weight:500;margin-bottom:2px}
+.lg .g{height:9px;border-radius:3px;border:1px solid var(--line)}
+.lg .k{display:flex;justify-content:space-between;color:var(--mut);font-variant-numeric:tabular-nums}
+.lg .sws{display:flex;flex-wrap:wrap;gap:3px 9px;color:var(--mut)}
+.lg .sws i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:3px;vertical-align:-1px}
+.me{width:16px;height:16px;border-radius:50%;background:#2f8cff;border:3px solid #fff;box-shadow:0 0 0 2px rgba(47,140,255,.35)}
 /* forecast sheet */
 #sheet{position:absolute;z-index:1095;left:0;right:0;bottom:0;height:var(--sh);background:var(--panel);border-top:1px solid var(--line);border-radius:16px 16px 0 0;display:flex;flex-direction:column;transition:height .25s ease;box-shadow:0 -6px 24px rgba(0,0,0,.3)}
-#app.open{--sh:64%}
+#app.open{--sh:62%}
 #shead{flex:none;padding:8px 14px 10px;border:0;background:none;text-align:left;width:100%;display:block}
 #shead::before{content:"";display:block;width:38px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 8px}
 .sum{display:flex;align-items:center;gap:12px}
@@ -74,7 +100,7 @@ button{cursor:pointer}
 #tabs button{border:0;background:none;padding:8px 10px;color:var(--mut);font:600 15px var(--display);letter-spacing:.04em;text-transform:uppercase;border-bottom:3px solid transparent;white-space:nowrap}
 #tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
 #tabs .badge{background:var(--bad);color:#fff;border-radius:9px;padding:0 6px;font-size:12px;margin-left:4px}
-#body{flex:1;overflow-y:auto;padding:12px 14px 20px;-webkit-overflow-scrolling:touch}
+#body{flex:1;overflow-y:auto;padding:12px 14px calc(20px + var(--sb));-webkit-overflow-scrolling:touch}
 #saved{display:flex;gap:6px;overflow-x:auto;padding:0 14px 8px;flex:none}
 #saved:empty{display:none}
 .chip{border:1px solid var(--line);background:var(--panel2);border-radius:16px;padding:4px 11px;font-size:13px;white-space:nowrap}
@@ -126,7 +152,7 @@ h3:first-child{margin-top:0}
 /* settings drawer */
 #drawer{position:absolute;z-index:1200;top:0;right:0;bottom:0;width:min(400px,100%);background:var(--panel);border-left:1px solid var(--line);transform:translateX(102%);transition:transform .25s ease;display:flex;flex-direction:column;box-shadow:-8px 0 30px rgba(0,0,0,.35)}
 #drawer.show{transform:none}
-#drawer header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--line)}
+#drawer header{padding-top:calc(12px + var(--st))!important;display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--line)}
 #drawer header h2{margin:0;font:600 24px var(--display);letter-spacing:.02em}
 #dbody{overflow-y:auto;padding:4px 14px 30px}
 details{border-bottom:1px solid var(--line)}
@@ -158,7 +184,11 @@ input[type=checkbox]{accent-color:var(--accent);width:20px;height:20px}
   #shead{cursor:default}
   #shead::before{display:none}
   #timeline{left:426px;right:auto;width:440px;bottom:30px}
+  #legend{left:426px;bottom:92px}
+  #fab{bottom:40px}
 }
+@media (max-width:899px){#app.open #legend .lgb{display:none}}
+#legend{max-height:calc(100% - var(--sh) - 150px);overflow-y:auto}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -171,10 +201,11 @@ input[type=checkbox]{accent-color:var(--accent);width:20px;height:20px}
       <input id="q" type="search" placeholder="Search a place or lat, lon" autocomplete="off" aria-label="Search a place">
       <div id="results"></div>
     </div>
-    <button class="ib" id="locate" title="Use my location" aria-label="Use my location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button>
     <button class="ib" id="opendrawer" aria-label="Customize"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg><span>Customize</span></button>
   </div>
 
+  <div id="legend" aria-label="Map legend"></div>
+  <button id="fab" title="Go to my current location" aria-label="Go to my current location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M21 3L3 10.6l7.6 2.8L13.4 21z"/></svg></button>
   <div id="timeline">
     <button id="play" aria-label="Play radar loop"><svg width="14" height="14" viewBox="0 0 14 14"><path id="playic" d="M3 1l10 6-10 6z" fill="currentColor"/></svg></button>
     <input id="scrub" type="range" min="0" max="0" value="0" aria-label="Radar frame">
@@ -215,7 +246,7 @@ const tz=(Intl.DateTimeFormat().resolvedOptions().timeZone)||'';
 const usTz=/^(America\/(New_York|Chicago|Denver|Los_Angeles|Phoenix|Detroit|Boise|Indiana|Kentucky|North_Dakota|Menominee))/.test(tz);
 const DEF={
   uTemp:usTz?'F':'C',uWind:usTz?'mph':'kmh',uPrecip:usTz?'in':'mm',uPress:usTz?'inHg':'hPa',uDist:usTz?'mi':'km',clock:usTz?'12':'24',
-  base:'dark',labelsTop:true,tapMove:true,
+  base:'dark',labelsTop:true,tapMove:true,legend:true,legendMin:false,
   radar:true,radarSrc:usTz?'iem':'rv',radarOp:75,frames:7,speed:500,rvSmooth:true,
   sat:false,satProd:'geo-e',satOp:85,
   alertsMap:false,
@@ -411,6 +442,32 @@ async function loadGrid(){
 map.on('moveend',queueGrid);
 map.on('click',e=>{if(S.tapMove)setLoc({lat:e.latlng.lat,lon:((e.latlng.lng+540)%360+360)%360-180},false,true)});
 
+/* ---------- legend ---------- */
+function grad(fn,lo,hi,n=9){const a=[];for(let i=0;i<n;i++)a.push(fn(lo+(hi-lo)*i/(n-1)));return 'linear-gradient(90deg,'+a.join(',')+')'}
+function renderLegend(){
+  const el=$('legend');if(!S.legend){el.innerHTML='';return}
+  const rows=[],bar=(t,g,ks)=>`<div class="lg"><div class="t">${t}</div><div class="g" style="background:${g}"></div><div class="k">${ks.map(k=>`<span>${k}</span>`).join('')}</div></div>`;
+  if(S.radar){
+    if(S.radarSrc==='iem')rows.push(bar('Radar reflectivity, dBZ','linear-gradient(90deg,#04e9e7,#019ff4,#0300f4,#02fd02,#01c501,#008e00,#fdf802,#e5bc00,#fd9500,#fd0000,#d40000,#bc0000,#f800fd,#9854c6,#fdfdfd)',[5,20,35,50,65,75])+'<div class="lg"><div class="k"><span>Light</span><span>Moderate</span><span>Heavy</span><span>Hail</span></div></div>');
+    else rows.push(bar('Radar, rain intensity','linear-gradient(90deg,#9be1f0,#33aadd,#0a5fa8,#ffe600,#ffa000,#ff3c00,#b80000,#ff8cf5)',['Light','Moderate','Heavy','Extreme'])+'<div class="lg"><div class="sws"><span><i style="background:#cfeaf5"></i>Snow shows in pale tones</span></div></div>');
+  }
+  if(S.grid){
+    const T=c=>r(fT(c))+'°',W=k=>r(fW(k)),v=S.gridVar,n=(GV[v]||GV.wind).n;
+    if(v==='temp'||v==='feels'||v==='dew')rows.push(bar(`${n}, °${S.uTemp}`,grad(tcol,-25,39),[T(-25),T(-9),T(7),T(23),T(39)]));
+    else if(v==='wind'||v==='gust')rows.push(bar(`${n}, ${WL[S.uWind]}`+(v==='wind'?' (arrow points downwind)':''),grad(wcol,0,70),[W(0),W(23),W(47),W(70)+'+']));
+    else if(v==='hum')rows.push(bar('Humidity',grad(pcol,0,100),['0%','50%','100%']));
+    else if(v==='cloud')rows.push(bar('Cloud cover',grad(c=>`hsl(215 15% ${95-c*.4}%)`,0,100),['0%','50%','100%']));
+    else if(v==='precip')rows.push(bar(`Precipitation, ${S.uPrecip} per hour`,grad(pcol,0,100),[r(fP(0),pd()),r(fP(2),pd()),r(fP(4),pd())+'+']));
+    else rows.push(`<div class="lg"><div class="t">Sea-level pressure, ${S.uPress}</div></div>`);
+  }
+  if(S.alertsMap)rows.push('<div class="lg"><div class="t">US warnings by severity</div><div class="sws"><span><i style="background:#f2d24e"></i>Minor</span><span><i style="background:#ffa23e"></i>Moderate</span><span><i style="background:#ff4b3e"></i>Severe</span><span><i style="background:#d63fd0"></i>Extreme</span></div></div>');
+  if(S.sat)rows.push(`<div class="lg"><div class="t">Satellite: ${({'geo-e':'GOES-East GeoColor','geo-w':'GOES-West GeoColor','ir-e':'GOES-East infrared (brighter is colder, higher cloud)','true':'VIIRS true color, yesterday'})[S.satProd]||''}</div></div>`);
+  rows.push('<div class="lg"><div class="sws"><span><i style="background:var(--accent);border-radius:50%"></i>Forecast point</span><span><i style="background:#2f8cff;border-radius:50%"></i>You</span></div></div>');
+  el.className=S.legendMin?'min':'';
+  el.innerHTML=`<button id="lgh" aria-expanded="${!S.legendMin}"><span>Legend</span><span>${S.legendMin?'Show':'Hide'}</span></button><div class="lgb">${rows.join('')}</div>`;
+  $('lgh').onclick=()=>{S.legendMin=!S.legendMin;save();renderLegend()};
+}
+
 /* ---------- location ---------- */
 async function setLoc(p,fly,reverse){
   S.loc={lat:+p.lat.toFixed(4),lon:+p.lon.toFixed(4),name:p.name||`${p.lat.toFixed(2)}, ${p.lon.toFixed(2)}`,sub:p.sub||''};
@@ -436,11 +493,19 @@ async function search(v){
   box.style.display='block';
   box.querySelectorAll('button[data-i]').forEach(b=>b.onclick=()=>{const x=list[+b.dataset.i];box.style.display='none';$('q').value='';$('q').blur();setLoc(x,true,x.rev)});
 }
-$('locate').onclick=()=>{
+let meDot=null,meRing=null;
+$('fab').onclick=()=>{
   if(!navigator.geolocation){status('This browser has no location access. Search for a place instead.',true);return}
-  status('Finding your location');
-  navigator.geolocation.getCurrentPosition(p=>setLoc({lat:p.coords.latitude,lon:p.coords.longitude},true,true),
-    ()=>status('Location was blocked. Allow it in your browser, or search for a place.',true),{timeout:10000});
+  const f=$('fab');f.classList.add('busy');status('Finding your location');
+  navigator.geolocation.getCurrentPosition(p=>{
+    f.classList.remove('busy');f.classList.add('on');
+    const ll=[p.coords.latitude,p.coords.longitude];
+    if(meDot){map.removeLayer(meDot);map.removeLayer(meRing)}
+    meRing=L.circle(ll,{radius:Math.min(p.coords.accuracy||0,5000),color:'#2f8cff',weight:1,fillOpacity:.12,interactive:false}).addTo(map);
+    meDot=L.marker(ll,{interactive:false,zIndexOffset:900,icon:L.divIcon({className:'',html:'<div class="me"></div>',iconSize:[16,16],iconAnchor:[11,11]})}).addTo(map);
+    setLoc({lat:ll[0],lon:ll[1]},true,true);
+  },e=>{f.classList.remove('busy');status(e.code===1?'Location is blocked for this site. Allow it in your browser settings, or search for a place.':"Couldn't get a location fix. Try again, or search for a place.",true)},
+  {enableHighAccuracy:true,timeout:12000,maximumAge:60000});
 };
 function isSaved(){return S.saved.findIndex(x=>x.lat===S.loc.lat&&x.lon===S.loc.lon)}
 function renderSaved(){
@@ -610,6 +675,7 @@ const SCHEMA=[
   {k:'grid',t:'tog',l:'Model values across the map',fx:'grid'},
   {k:'gridVar',t:'sel',l:'Value shown',o:Object.entries(GV).map(([k,v])=>[k,v.n]),fx:'grid'},
   {k:'gridDen',t:'seg',l:'Density',o:[['s','Sparse'],['m','Medium'],['l','Dense']],fx:'grid'},
+  {k:'legend',t:'tog',l:'Show the map legend',fx:'legend'},
   {k:'tapMove',t:'tog',l:'Tap the map to move the forecast point'}
  ]],
  ['Forecast',[
@@ -666,6 +732,7 @@ function theme(){
 let rtimer=null;
 function setTimer(){clearInterval(rtimer);if(S.refresh>0)rtimer=setInterval(()=>{loadPoint();if(!playing)loadFrames();syncSat();syncAlertsMap();loadGrid()},S.refresh*6e4)}
 function apply(fx){
+  renderLegend();
   if(fx==='base')syncBase();
   else if(fx==='radar')loadFrames();
   else if(fx==='radarop')showFrame(fi);
@@ -689,7 +756,7 @@ matchMedia('(prefers-color-scheme:dark)').addEventListener('change',theme);
 function boot(){
   stop();theme();buildDrawer();syncBase();syncSat();syncAlertsMap();
   pin.setLatLng([S.loc.lat,S.loc.lon]);map.setView([S.loc.lat,S.loc.lon],map.getZoom());
-  renderSaved();renderTabs();loadFrames();loadPoint();loadGrid();setTimer();
+  renderSaved();renderTabs();renderLegend();loadFrames();loadPoint();loadGrid();setTimer();
 }
 boot();
 })();

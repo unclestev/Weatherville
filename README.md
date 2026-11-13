@@ -9,6 +9,7 @@ A customizable weather map that runs entirely in the browser from free, keyless 
 - Radar loop: US NEXRAD (5-minute frames) or RainViewer worldwide
 - GOES / VIIRS satellite, US warning polygons, a grid of model values across the map
 - Current conditions, draggable hourly charts, 7–16 day outlook, air quality, US alerts
+- Map legend, current-location button, and home-screen install (Add to Home Screen)
 - Choice of weather model, units, tiles, charts, theme, saved places, copy/paste settings backup
 
 ## Data sources
