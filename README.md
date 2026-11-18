@@ -16,6 +16,7 @@ A customizable weather map that runs entirely in the browser from free, keyless 
 | Purpose | Feed |
 |---|---|
 | Forecast, air quality, place search | [Open-Meteo](https://open-meteo.com/) (CC BY 4.0, free for non-commercial use) |
+| Backup forecasts | [US National Weather Service](https://www.weather.gov/documentation/services-web-api), [MET Norway](https://api.met.no/) (CC BY 4.0) |
 | US radar | [Iowa Environmental Mesonet](https://mesonet.agron.iastate.edu/) NEXRAD tiles |
 | Global radar | [RainViewer](https://www.rainviewer.com/) (personal use, attribution required) |
 | Satellite | [NASA GIBS](https://earthdata.nasa.gov/gibs) |

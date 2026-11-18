@@ -257,7 +257,7 @@ const DEF={
   sat:false,satProd:'geo-e',satOp:85,
   alertsMap:false,
   grid:false,gridVar:'wind',gridDen:'m',
-  model:'best_match',hours:48,days:10,
+  model:'best_match',src:'auto',hours:48,days:10,
   tiles:['feels','wind','gust','hum','dew','press','cloud','vis','uv','precip','sun'],
   strips:['temp','pop','precip','wind'],
   aqi:usTz?'us':'eu',theme:'dark',accent:'#f2a83b',refresh:10,
@@ -547,10 +547,124 @@ function cacheGet(){try{const c=JSON.parse(localStorage.getItem(CK)||'null');ret
 function cachePut(d,aq){try{localStorage.setItem(CK,JSON.stringify({lat:S.loc.lat,lon:S.loc.lon,t:Date.now(),d,aq}))}catch(e){}}
 let lastOK=0,lastFail=0,rtry=null,coolUntil=0;
 function why(e){
-  if(!e||e.status===0)return e&&e.message==='timed out'?'Open-Meteo took too long to answer':'no internet connection';
-  if(e.status===429)return "Open-Meteo's free request limit is used up for now";
-  if(e.status>=500)return 'Open-Meteo is having trouble';
-  return 'Open-Meteo refused the request: '+e.message;
+  if(!e||e.status===0)return e&&e.message==='timed out'?'no answer in time':'no answer (blocked or offline)';
+  if(e.status===429)return 'free request limit used up for now';
+  if(e.status>=500)return 'the service is having trouble';
+  return 'request refused: '+e.message;
+}
+/* ----- backup forecast sources, converted to the same shape as Open-Meteo ----- */
+const SRCN={om:'Open-Meteo',nws:'National Weather Service',met:'MET Norway'};
+function lt(ms,tz){
+  try{const o={};new Intl.DateTimeFormat('en-CA',{timeZone:tz||undefined,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(ms)).forEach(x=>o[x.type]=x.value);
+    return `${o.year}-${o.month}-${o.day}T${o.hour==='24'?'00':o.hour}:${o.minute}`}
+  catch(e){const d=new Date(ms-new Date(ms).getTimezoneOffset()*6e4);return d.toISOString().slice(0,16)}
+}
+function sunTimes(day,lat,lon){   // NOAA/SunCalc approximation; returns UTC ms or NaN in polar day/night
+  const R=Math.PI/180,J=(Date.parse(day+'T12:00:00Z')-lon/15*36e5)/864e5-.5+2440588-2451545,lw=-lon*R,phi=lat*R,e=23.4397*R;
+  const n=Math.round(J-.0009-lw/(2*Math.PI)),ds=.0009+lw/(2*Math.PI)+n,M=R*(357.5291+.98560028*ds);
+  const L=M+R*(1.9148*Math.sin(M)+.02*Math.sin(2*M)+.0003*Math.sin(3*M))+R*102.9372+Math.PI,dec=Math.asin(Math.sin(L)*Math.sin(e));
+  const tr=(x)=>2451545+x+.0053*Math.sin(M)-.0069*Math.sin(2*L),noon=tr(ds);
+  const w=Math.acos((Math.sin(-.833*R)-Math.sin(phi)*Math.sin(dec))/(Math.cos(phi)*Math.cos(dec))),set=tr(.0009+(w+lw)/(2*Math.PI)+n);
+  const ms=j=>(j+.5-2440588)*864e5;return {rise:ms(noon-(set-noon)),set:ms(set)};
+}
+function feels(t,rh,w){   // °C, %, km/h → apparent °C (NWS wind chill / heat index)
+  if(t==null)return null;
+  if(t<=10&&w>4.8)return 13.12+.6215*t-11.37*Math.pow(w,.16)+.3965*t*Math.pow(w,.16);
+  if(t>=27&&rh!=null){const f=t*9/5+32,h=-42.379+2.04901523*f+10.14333127*rh-.22475541*f*rh-.00683783*f*f-.05481717*rh*rh+.00122874*f*f*rh+.00085282*f*rh*rh-.00000199*f*f*rh*rh;return (h-32)*5/9}
+  return t;
+}
+function codeOf(txt){
+  const t=(txt||'').toLowerCase().replace(/_(day|night|polartwilight)/,'');if(!t)return null;
+  if(/thunder/.test(t))return 95;
+  if(/sleet|freezing|ice/.test(t))return 66;
+  if(/snow|flurr|blizzard/.test(t))return /shower/.test(t)?85:/heavy/.test(t)?75:/light|flurr|chance|slight/.test(t)?71:73;
+  if(/drizzle/.test(t))return 53;
+  if(/rain|shower/.test(t))return /shower/.test(t)?(/heavy/.test(t)?82:/light|chance|slight/.test(t)?80:81):/heavy/.test(t)?65:/light|chance|slight/.test(t)?61:63;
+  if(/fog|haze|smoke|mist/.test(t))return 45;
+  if(/partly|fair|mostly sunny|mostly clear/.test(t))return /mostly (sunny|clear)|fair/.test(t)?1:2;
+  if(/cloud|overcast/.test(t))return 3;
+  if(/sun|clear/.test(t))return 0;
+  return null;
+}
+const derive=(t,cloud,p)=>p>.3?(t!=null&&t<=0?73:p>4?65:61):cloud==null?null:cloud<15?0:cloud<45?1:cloud<80?2:3;
+const circ=a=>{const v=a.filter(x=>x!=null);if(!v.length)return null;let x=0,y=0;v.forEach(d=>{x+=Math.cos(d*Math.PI/180);y+=Math.sin(d*Math.PI/180)});return (Math.atan2(y,x)*180/Math.PI+360)%360};
+// series: {startMs:[...hour ms], <var>:[...]} in metric → Open-Meteo-shaped object
+function buildD(H,cur,tz,lat,lon){
+  const now=Date.now(),start=Math.floor(now/36e5)*36e5,times=H.t.map(ms=>lt(ms,tz).slice(0,13)+':00');
+  const sun={},sunOf=day=>sun[day]||(sun[day]=sunTimes(day,lat,lon));
+  const isDay=ms=>{const s=sunOf(lt(ms,tz).slice(0,10));return isNaN(s.rise)?(Math.abs(lat)<66||((lat>0)===([3,4,5,6,7,8].includes(new Date(ms).getUTCMonth())))?1:0):(ms>=s.rise&&ms<s.set?1:0)};
+  const h={time:times,is_day:H.t.map(isDay)};
+  ['temperature_2m','apparent_temperature','dew_point_2m','relative_humidity_2m','precipitation_probability','precipitation','weather_code','cloud_cover','pressure_msl','visibility','wind_speed_10m','wind_gusts_10m','wind_direction_10m','uv_index','cape'].forEach(k=>h[k]=H[k]||H.t.map(()=>null));
+  h.apparent_temperature=h.apparent_temperature.map((v,i)=>v!=null?v:feels(h.temperature_2m[i],h.relative_humidity_2m[i],h.wind_speed_10m[i]));
+  h.weather_code=h.weather_code.map((v,i)=>v!=null?v:derive(h.temperature_2m[i],h.cloud_cover[i],h.precipitation[i]));
+  // days
+  const days=[...new Set(times.map(x=>x.slice(0,10)))],D2={time:[]};
+  ['weather_code','temperature_2m_max','temperature_2m_min','sunrise','sunset','precipitation_sum','precipitation_probability_max','wind_speed_10m_max','wind_gusts_10m_max','wind_direction_10m_dominant','uv_index_max'].forEach(k=>D2[k]=[]);
+  const mx=a=>{const v=a.filter(x=>x!=null);return v.length?Math.max(...v):null},mn=a=>{const v=a.filter(x=>x!=null);return v.length?Math.min(...v):null};
+  days.forEach((day,di)=>{
+    const ix=times.map((x,i)=>x.startsWith(day)?i:-1).filter(i=>i>=0);if(di>0&&ix.length<18)return;
+    const pick=k=>ix.map(i=>h[k][i]),dayIx=ix.filter(i=>{const hr=+times[i].slice(11,13);return hr>=8&&hr<=19});
+    const s=sunOf(day);
+    D2.time.push(day);D2.temperature_2m_max.push(mx(pick('temperature_2m')));D2.temperature_2m_min.push(mn(pick('temperature_2m')));
+    D2.weather_code.push(mx((dayIx.length?dayIx:ix).map(i=>h.weather_code[i])));
+    D2.sunrise.push(isNaN(s.rise)?null:lt(s.rise,tz));D2.sunset.push(isNaN(s.set)?null:lt(s.set,tz));
+    const pr=pick('precipitation').filter(x=>x!=null);D2.precipitation_sum.push(pr.length?pr.reduce((a,b)=>a+b,0):null);
+    D2.precipitation_probability_max.push(mx(pick('precipitation_probability')));D2.wind_speed_10m_max.push(mx(pick('wind_speed_10m')));
+    D2.wind_gusts_10m_max.push(mx(pick('wind_gusts_10m')));D2.wind_direction_10m_dominant.push(circ(pick('wind_direction_10m')));D2.uv_index_max.push(mx(pick('uv_index')));
+  });
+  // trim hourly to start at the current hour
+  const k0=Math.max(0,H.t.findIndex(ms=>ms>=start));Object.keys(h).forEach(k=>h[k]=h[k].slice(k0));
+  const g=k=>h[k][0];
+  const c={time:lt(now,tz),temperature_2m:g('temperature_2m'),relative_humidity_2m:g('relative_humidity_2m'),apparent_temperature:g('apparent_temperature'),is_day:isDay(now),
+    precipitation:g('precipitation'),weather_code:g('weather_code'),cloud_cover:g('cloud_cover'),pressure_msl:g('pressure_msl'),wind_speed_10m:g('wind_speed_10m'),wind_direction_10m:g('wind_direction_10m'),wind_gusts_10m:g('wind_gusts_10m')};
+  c.time=c.time.slice(0,13)+':00'===h.time[0]?c.time:h.time[0].slice(0,13)+':00';
+  if(cur)Object.keys(cur).forEach(k=>{if(cur[k]!=null)c[k]=cur[k]});
+  return {current:c,hourly:h,daily:D2};
+}
+// US National Weather Service: gridpoint forecast + hourly text + latest observation
+async function fetchNWS(lat,lon){
+  const pt=(await getJSON(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`)).properties;
+  const [grid,txt,obs]=await Promise.all([getJSON(pt.forecastGridData,20000),getJSON(pt.forecastHourly).catch(()=>null),
+    getJSON(pt.observationStations).then(st=>getJSON(`https://api.weather.gov/stations/${st.features[0].properties.stationIdentifier}/observations/latest`)).catch(()=>null)]);
+  const G=grid.properties,dur=v=>{const m=v.match(/P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?)?/)||[];return Math.max(1,(+(m[1]||0))*24+(+(m[2]||0))+Math.round((+(m[3]||0))/60))};
+  const conv=(u,v)=>v==null?null:/degF/.test(u)?(v-32)*5/9:/m_s-1/.test(u)?v*3.6:/kn|kt/.test(u)?v*1.852:/Pa$/.test(u)&&!/hPa/.test(u)?v/100:v;
+  const ex=(name,spread)=>{const m=new Map(),ser=G[name];if(!ser||!ser.values)return m;
+    ser.values.forEach(({validTime,value})=>{const [st,d]=validTime.split('/'),t0=Date.parse(st),n=dur(d),v=conv(ser.uom||'',value);for(let i=0;i<n;i++)m.set(t0+i*36e5,v==null?null:spread?v/n:v)});return m};
+  const T=ex('temperature');if(!T.size)throw Object.assign(new Error('no forecast data'),{status:503});
+  const hrs=[...T.keys()].sort((a,b)=>a-b),start=Math.floor(Date.now()/36e5)*36e5-12*36e5,t=hrs.filter(x=>x>=start);
+  const S2={t},map=(k,m)=>S2[k]=t.map(x=>m.has(x)?m.get(x):null);
+  map('temperature_2m',T);map('dew_point_2m',ex('dewpoint'));map('relative_humidity_2m',ex('relativeHumidity'));map('apparent_temperature',ex('apparentTemperature'));
+  map('precipitation_probability',ex('probabilityOfPrecipitation'));map('precipitation',ex('quantitativePrecipitation',true));map('cloud_cover',ex('skyCover'));
+  map('visibility',ex('visibility'));map('wind_speed_10m',ex('windSpeed'));map('wind_gusts_10m',ex('windGust'));map('wind_direction_10m',ex('windDirection'));
+  if(txt&&txt.properties){const tm=new Map();txt.properties.periods.forEach(p=>tm.set(Date.parse(p.startTime),codeOf(p.shortForecast)));S2.weather_code=t.map(x=>tm.has(x)?tm.get(x):null)}
+  let cur=null;const o=obs&&obs.properties;
+  if(o&&Date.now()-Date.parse(o.timestamp)<2*36e5){const q=k=>o[k]?conv(o[k].unitCode||'',o[k].value):null;
+    const tC=q('temperature'),w=q('windSpeed');
+    cur={temperature_2m:tC,relative_humidity_2m:q('relativeHumidity'),wind_speed_10m:w,wind_direction_10m:q('windDirection'),wind_gusts_10m:q('windGust'),
+      pressure_msl:q('seaLevelPressure')||q('barometricPressure'),weather_code:codeOf(o.textDescription),precipitation:q('precipitationLastHour'),
+      apparent_temperature:q('windChill')??q('heatIndex')??(tC!=null?feels(tC,q('relativeHumidity'),w):null)}}
+  return buildD(S2,cur,pt.timeZone,lat,lon);
+}
+// MET Norway Locationforecast 2.0 (global, ~10 days; hourly then 6-hourly — filled to hourly)
+async function fetchMET(lat,lon,tz){
+  const j=await getJSON(`https://api.met.no/weatherapi/locationforecast/2.0/complete?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`,20000);
+  const ts=j.properties.timeseries.map(x=>({t:Date.parse(x.time),d:x.data})).filter(x=>!isNaN(x.t));
+  const t=[];for(let x=ts[0].t;x<=ts[ts.length-1].t;x+=36e5)t.push(x);
+  const inst=k=>{const out=[];let a=0;t.forEach(x=>{while(a<ts.length-2&&ts[a+1].t<=x)a++;const A=ts[a],B=ts[Math.min(a+1,ts.length-1)],va=A.d.instant.details[k],vb=B.d.instant.details[k];
+      out.push(va==null?null:vb==null||B.t===A.t?va:va+(vb-va)*(x-A.t)/(B.t-A.t))});return out};
+  const per=(fn)=>{const out=[];let a=0;t.forEach(x=>{while(a<ts.length-1&&ts[a+1].t<=x)a++;const d=ts[a].d,n1=d.next_1_hours,n6=d.next_6_hours,n=n1?1:6,blk=n1||n6;out.push(blk?fn(blk,n):null)});return out};
+  const S2={t,temperature_2m:inst('air_temperature'),dew_point_2m:inst('dew_point_temperature'),relative_humidity_2m:inst('relative_humidity'),pressure_msl:inst('air_pressure_at_sea_level'),
+    cloud_cover:inst('cloud_area_fraction'),wind_speed_10m:inst('wind_speed').map(v=>v==null?null:v*3.6),wind_gusts_10m:inst('wind_speed_of_gust').map(v=>v==null?null:v*3.6),
+    wind_direction_10m:inst('wind_from_direction'),uv_index:inst('ultraviolet_index_clear_sky'),
+    precipitation:per((b,n)=>b.details&&b.details.precipitation_amount!=null?b.details.precipitation_amount/n:null),
+    precipitation_probability:per(b=>b.details&&b.details.probability_of_precipitation!=null?b.details.probability_of_precipitation:null),
+    weather_code:per(b=>b.summary?codeOf(b.summary.symbol_code):null)};
+  return buildD(S2,null,tz,lat,lon);
+}
+async function fetchOM(lat,lon){
+  const fURL=(m,days)=>`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=${CUR}&hourly=${HR}&daily=${DY}&timezone=auto&forecast_days=${days}${m!=='best_match'?'&models='+m:''}`;
+  try{return {d:await getJSON(fURL(S.model,S.days)),label:MODELS[S.model]||'Open-Meteo'}}
+  catch(e){if(e.status===400&&S.model!=='best_match')return {d:await getJSON(fURL('best_match',S.days)),label:'Best match (auto)',note:`${MODELS[S.model]} unavailable here`};throw e}
 }
 async function loadPoint(attempt=0){
   clearTimeout(rtry);
@@ -558,29 +672,35 @@ async function loadPoint(attempt=0){
   $('splace').textContent=S.loc.name;
   if(!D){const c=cacheGet();if(c){D=c.d;AQ=c.aq;render()}}
   status(attempt?`Retrying (${attempt} of 3)`:'Loading forecast');
-  const fURL=(m,days)=>`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=${CUR}&hourly=${HR}&daily=${DY}&timezone=auto&forecast_days=${days}${m!=='best_match'?'&models='+m:''}`;
   const a=getJSON(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&current=us_aqi,european_aqi,pm2_5,pm10,ozone,nitrogen_dioxide,sulphur_dioxide,carbon_monoxide&timezone=auto`).catch(()=>null);
-  alertsUS=lat>13&&lat<72&&lon>-180&&lon<-64;
-  const al=alertsUS?getJSON(`https://api.weather.gov/alerts/active?point=${lat},${lon}`).catch(()=>null):Promise.resolve(null);
-  let d,note='';
-  try{d=await getJSON(fURL(S.model,S.days))}
-  catch(e){
-    if(seq!==pseq)return;
-    if(e.status===400&&(S.model!=='best_match'||S.days>7)){   // this model can't serve these settings: fall back
-      try{d=await getJSON(fURL('best_match',Math.min(S.days,16)));note=` · ${MODELS[S.model]} unavailable here, showing best match`}catch(e2){e=e2}
-    }
-    if(!d){
-      if(seq!==pseq)return;
-      lastFail=Date.now();
-      const c=cacheGet(),age=c?` Showing the forecast from ${clockNow(c.t)}.`:'';
-      if(e.status===429){status(`${why(e)}.${age} Weatherville will try again in 10 minutes.`,true);coolUntil=Date.now()+6e5;rtry=setTimeout(()=>loadPoint(),6e5);return}
-      if(attempt<3&&(e.status===0||e.status>=500)){rtry=setTimeout(()=>loadPoint(attempt+1),[2e3,6e3,2e4][attempt]);status(`Couldn't refresh: ${why(e)}. Retrying…`,true);return}
-      status(`Couldn't refresh: ${why(e)}.${age} Tap here to try again.`,true);return;
-    }
+  alertsUS=lat>18&&lat<72&&lon>-180&&lon<-64;
+  const al=alertsUS?getJSON(`https://api.weather.gov/alerts/active?point=${lat.toFixed(4)},${lon.toFixed(4)}`).catch(()=>null):Promise.resolve(null);
+  const first=S.src==='auto'?'om':S.src;
+  let order=[first,...['om',alertsUS?'nws':'met',alertsUS?'met':'nws'].filter(x=>x!==first)];
+  if(!alertsUS)order=order.filter(x=>x!=='nws');
+  if(Date.now()<coolUntil&&order[0]==='om')order.push(order.shift());   // Open-Meteo said "slow down": ask it last
+  let got=null,used=null;const errs={};
+  for(const src of order){
+    try{
+      if(src==='om'){const r=await fetchOM(lat,lon);got={d:r.d,label:r.label,note:r.note}}
+      else if(src==='nws')got={d:await fetchNWS(lat,lon),label:'NWS forecast'};
+      else got={d:await fetchMET(lat,lon,(D&&D.timezone)||undefined),label:'MET Norway forecast'};
+      used=src;break;
+    }catch(e){errs[src]=e;if(src==='om'&&e.status===429)coolUntil=Date.now()+6e5;if(seq!==pseq)return}
+  }
+  if(seq!==pseq)return;
+  if(!got){
+    lastFail=Date.now();
+    const e=errs.om||Object.values(errs)[0],c=cacheGet(),age=c?` Showing the forecast from ${clockNow(c.t)}.`:'';
+    const allOff=Object.values(errs).every(x=>x.status===0);
+    if(attempt<3&&allOff){rtry=setTimeout(()=>loadPoint(attempt+1),[3e3,1e4,3e4][attempt]);status(`Couldn't reach any forecast service. Retrying…${age}`,true);return}
+    status(`Couldn't refresh from ${order.map(x=>SRCN[x]).join(', ')}: ${why(e)}.${age} Tap here to try again.`,true);return;
   }
   const [aq,alr]=await Promise.all([a,al]);if(seq!==pseq)return;
-  D=d;AQ=aq;AL=alr&&alr.features?alr.features:(alertsUS?null:[]);lastOK=Date.now();lastFail=0;cachePut(d,aq);
-  status(`Updated ${clockNow(Date.now())} · ${note?'Best match (auto)':MODELS[S.model]||'Open-Meteo'} · ${S.loc.sub||`${lat}, ${lon}`}${note}`);
+  D=got.d;AQ=aq;AL=alr&&alr.features?alr.features:(alertsUS?null:[]);lastOK=Date.now();lastFail=0;cachePut(D,aq);
+  const skipped=order.slice(0,order.indexOf(used)).map(x=>`${SRCN[x]} ${errs[x]&&errs[x].status===0?"didn't answer":errs[x]&&errs[x].status===429?'is over its free limit':'failed'}`);
+  const notes=[got.note,skipped.length?skipped.join(', ')+', using backup':''].filter(Boolean).join(' · ');
+  status(`Updated ${clockNow(Date.now())} · ${got.label} · ${S.loc.sub||`${lat}, ${lon}`}${notes?' · '+notes:''}`);
   render();
 }
 // phones pause background tabs; refresh when the page comes back or the connection returns
@@ -696,6 +816,7 @@ function alertsHTML(){
 function aboutHTML(){
   return `<ul class="src" style="padding-left:18px;margin:0">
   <li><a href="https://open-meteo.com/">Open-Meteo</a>: forecasts from national models (NOAA, ECMWF, DWD and more), air quality, place search. CC BY 4.0, free for non-commercial use.</li>
+  <li><a href="https://www.weather.gov/documentation/services-web-api">US National Weather Service</a> and <a href="https://api.met.no/">MET Norway</a> (CC BY 4.0): backup forecasts when Open-Meteo can't be reached.</li>
   <li><a href="https://mesonet.agron.iastate.edu/">Iowa Environmental Mesonet</a>: NEXRAD radar mosaic of the contiguous US, 5-minute frames.</li>
   <li><a href="https://www.rainviewer.com/">RainViewer</a>: global radar mosaic, 10-minute frames, personal use.</li>
   <li><a href="https://earthdata.nasa.gov/gibs">NASA GIBS</a>: GOES and VIIRS satellite imagery.</li>
@@ -727,7 +848,8 @@ const SCHEMA=[
   {k:'tapMove',t:'tog',l:'Tap the map to move the forecast point'}
  ]],
  ['Forecast',[
-  {k:'model',t:'sel',l:'Weather model',o:Object.entries(MODELS),fx:'fetch'},
+  {k:'src',t:'sel',l:'Forecast source',o:[['auto','Automatic (backups if one fails)'],['om','Open-Meteo first'],['nws','US National Weather Service first'],['met','MET Norway first']],fx:'fetch'},
+  {k:'model',t:'sel',l:'Open-Meteo weather model',o:Object.entries(MODELS),fx:'fetch'},
   {k:'hours',t:'seg',l:'Hourly charts cover',o:[[24,'24 h'],[48,'48 h'],[72,'3 d'],[120,'5 d']],fx:'render'},
   {k:'days',t:'seg',l:'Daily outlook',o:[[7,'7'],[10,'10'],[14,'14'],[16,'16']],fx:'fetch'},
   {k:'strips',t:'multi',l:'Hourly charts',o:Object.entries(SER).map(([k,v])=>[k,v.n]),fx:'render'},
