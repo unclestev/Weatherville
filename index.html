@@ -304,7 +304,12 @@ function icon(code,day){
 /* ---------- fetch ---------- */
 async function getJSON(url,ms=15000){
   const c=new AbortController(),t=setTimeout(()=>c.abort(),ms);
-  try{const res=await fetch(url,{signal:c.signal,headers:{Accept:'application/geo+json, application/json'}});if(!res.ok)throw new Error('HTTP '+res.status);return await res.json()}
+  let res;
+  try{res=await fetch(url,{signal:c.signal,headers:{Accept:'application/geo+json, application/json'}})}
+  catch(e){const er=new Error(e.name==='AbortError'?'timed out':'no connection');er.status=0;throw er}
+  try{if(!res.ok){let why='';try{const j=await res.json();why=j.reason||j.detail||j.title||''}catch(_){}
+      const er=new Error(why||('HTTP '+res.status));er.status=res.status;throw er}
+    return await res.json()}
   finally{clearTimeout(t)}
 }
 
@@ -417,17 +422,19 @@ const GV={
 const tcol=c=>`hsl(${Math.max(0,Math.min(270,270-(c+25)*4.2))} 85% 62%)`;
 const wcol=k=>`hsl(${Math.max(0,170-k*2.4)} 80% 62%)`;
 const pcol=p=>`hsl(200 80% ${Math.max(45,90-p*.45)}%)`;
-const gridL=L.layerGroup().addTo(map);let gtimer=null,gseq=0;
-function queueGrid(){clearTimeout(gtimer);gtimer=setTimeout(loadGrid,700)}
+const gridL=L.layerGroup().addTo(map);let gtimer=null,gseq=0,gKey='',gT=0;
+function queueGrid(){clearTimeout(gtimer);gtimer=setTimeout(loadGrid,1200)}
 async function loadGrid(){
   if(!S.grid){gridL.clearLayers();return}
   const b=map.getBounds(),[nx,ny]={s:[4,4],m:[6,5],l:[8,7]}[S.gridDen]||[6,5],pts=[];
   const s=Math.max(-85,b.getSouth()),n=Math.min(85,b.getNorth()),w=b.getWest(),e=b.getEast();
   for(let y=0;y<ny;y++)for(let x=0;x<nx;x++){const la=s+(n-s)*(y+.5)/ny,lo=w+(e-w)*(x+.5)/nx;pts.push([la,lo])}
-  const v=GV[S.gridVar]||GV.wind,seq=++gseq;
+  const v=GV[S.gridVar]||GV.wind,key=[S.gridVar,S.model,S.gridDen,map.getZoom(),Math.round(s*4),Math.round(w*4)].join();
+  if(Date.now()<coolUntil||(key===gKey&&Date.now()-gT<9e5))return;
+  const seq=++gseq;
   const url=`https://api.open-meteo.com/v1/forecast?latitude=${pts.map(p=>p[0].toFixed(3))}&longitude=${pts.map(p=>(((p[1]+540)%360+360)%360-180).toFixed(3))}&current=${v.q}${S.model!=='best_match'?'&models='+S.model:''}`;
-  let j;try{j=await getJSON(url)}catch(err){return}
-  if(seq!==gseq)return;
+  let j;try{j=await getJSON(url)}catch(err){if(err.status===429)coolUntil=Date.now()+6e5;return}
+  if(seq!==gseq)return;gKey=key;gT=Date.now();
   gridL.clearLayers();
   (Array.isArray(j)?j:[j]).forEach((o,i)=>{
     const c=o.current||{};let html,bg;
@@ -484,6 +491,7 @@ async function setLoc(p,fly,reverse){
   S.loc={lat:+p.lat.toFixed(4),lon:+p.lon.toFixed(4),name:p.name||`${p.lat.toFixed(2)}, ${p.lon.toFixed(2)}`,sub:p.sub||''};
   save();pin.setLatLng([S.loc.lat,S.loc.lon]);
   if(fly){const z=Math.max(map.getZoom(),8);reduce?map.setView([S.loc.lat,S.loc.lon],z):map.flyTo([S.loc.lat,S.loc.lon],z,{duration:.8})}
+  D=null;AQ=null;AL=null;$('stemp').textContent='–';$('sic').innerHTML='';$('scond').textContent='';$('body').innerHTML='';
   renderSaved();loadPoint();
   if(reverse){try{
     const j=await getJSON(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${p.lat}&longitude=${p.lon}&localityLanguage=en`,8000);
@@ -534,21 +542,50 @@ const HR='temperature_2m,apparent_temperature,dew_point_2m,relative_humidity_2m,
 const DY='weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,uv_index_max';
 const MODELS={best_match:'Best match (auto)',gfs_seamless:'NOAA GFS + HRRR',ecmwf_ifs025:'ECMWF IFS',icon_seamless:'DWD ICON',gem_seamless:'Canada GEM',meteofrance_seamless:'Météo-France',ukmo_seamless:'UK Met Office',jma_seamless:'Japan JMA'};
 let pseq=0;
-async function loadPoint(){
-  const {lat,lon}=S.loc,seq=++pseq;status('Loading forecast');
+const CK='weatherville.cache.v1';
+function cacheGet(){try{const c=JSON.parse(localStorage.getItem(CK)||'null');return c&&c.lat===S.loc.lat&&c.lon===S.loc.lon?c:null}catch(e){return null}}
+function cachePut(d,aq){try{localStorage.setItem(CK,JSON.stringify({lat:S.loc.lat,lon:S.loc.lon,t:Date.now(),d,aq}))}catch(e){}}
+let lastOK=0,lastFail=0,rtry=null,coolUntil=0;
+function why(e){
+  if(!e||e.status===0)return e&&e.message==='timed out'?'Open-Meteo took too long to answer':'no internet connection';
+  if(e.status===429)return "Open-Meteo's free request limit is used up for now";
+  if(e.status>=500)return 'Open-Meteo is having trouble';
+  return 'Open-Meteo refused the request: '+e.message;
+}
+async function loadPoint(attempt=0){
+  clearTimeout(rtry);
+  const {lat,lon}=S.loc,seq=++pseq;
   $('splace').textContent=S.loc.name;
-  const mdl=S.model!=='best_match'?'&models='+S.model:'';
-  const f=getJSON(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=${CUR}&hourly=${HR}&daily=${DY}&timezone=auto&forecast_days=${S.days}${mdl}`);
+  if(!D){const c=cacheGet();if(c){D=c.d;AQ=c.aq;render()}}
+  status(attempt?`Retrying (${attempt} of 3)`:'Loading forecast');
+  const fURL=(m,days)=>`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=${CUR}&hourly=${HR}&daily=${DY}&timezone=auto&forecast_days=${days}${m!=='best_match'?'&models='+m:''}`;
   const a=getJSON(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&current=us_aqi,european_aqi,pm2_5,pm10,ozone,nitrogen_dioxide,sulphur_dioxide,carbon_monoxide&timezone=auto`).catch(()=>null);
   alertsUS=lat>13&&lat<72&&lon>-180&&lon<-64;
   const al=alertsUS?getJSON(`https://api.weather.gov/alerts/active?point=${lat},${lon}`).catch(()=>null):Promise.resolve(null);
-  try{
-    const [d,aq,alr]=await Promise.all([f,a,al]);if(seq!==pseq)return;
-    D=d;AQ=aq;AL=alr&&alr.features?alr.features:(alertsUS?null:[]);
-    status(`Updated ${clockNow(Date.now())} · ${MODELS[S.model]||'Open-Meteo'} · ${S.loc.sub||`${lat}, ${lon}`}`);
-    render();
-  }catch(e){if(seq===pseq)status("Couldn't reach Open-Meteo. Check your connection, then pick the place again.",true)}
+  let d,note='';
+  try{d=await getJSON(fURL(S.model,S.days))}
+  catch(e){
+    if(seq!==pseq)return;
+    if(e.status===400&&(S.model!=='best_match'||S.days>7)){   // this model can't serve these settings: fall back
+      try{d=await getJSON(fURL('best_match',Math.min(S.days,16)));note=` · ${MODELS[S.model]} unavailable here, showing best match`}catch(e2){e=e2}
+    }
+    if(!d){
+      if(seq!==pseq)return;
+      lastFail=Date.now();
+      const c=cacheGet(),age=c?` Showing the forecast from ${clockNow(c.t)}.`:'';
+      if(e.status===429){status(`${why(e)}.${age} Weatherville will try again in 10 minutes.`,true);coolUntil=Date.now()+6e5;rtry=setTimeout(()=>loadPoint(),6e5);return}
+      if(attempt<3&&(e.status===0||e.status>=500)){rtry=setTimeout(()=>loadPoint(attempt+1),[2e3,6e3,2e4][attempt]);status(`Couldn't refresh: ${why(e)}. Retrying…`,true);return}
+      status(`Couldn't refresh: ${why(e)}.${age} Tap here to try again.`,true);return;
+    }
+  }
+  const [aq,alr]=await Promise.all([a,al]);if(seq!==pseq)return;
+  D=d;AQ=aq;AL=alr&&alr.features?alr.features:(alertsUS?null:[]);lastOK=Date.now();lastFail=0;cachePut(d,aq);
+  status(`Updated ${clockNow(Date.now())} · ${note?'Best match (auto)':MODELS[S.model]||'Open-Meteo'} · ${S.loc.sub||`${lat}, ${lon}`}${note}`);
+  render();
 }
+// phones pause background tabs; refresh when the page comes back or the connection returns
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&(lastFail||Date.now()-lastOK>3e5)&&Date.now()>coolUntil)loadPoint()});
+addEventListener('online',()=>{if(lastFail)loadPoint()});
 
 /* ---------- rendering ---------- */
 const TABS=[['now','Now'],['hourly','Hourly'],['daily','Daily'],['air','Air'],['alerts','Alerts'],['about','Sources']];
@@ -741,7 +778,7 @@ function theme(){
   document.documentElement.dataset.theme=t;document.documentElement.style.setProperty('--accent',S.accent);
 }
 let rtimer=null;
-function setTimer(){clearInterval(rtimer);if(S.refresh>0)rtimer=setInterval(()=>{loadPoint();if(!playing)loadFrames();syncSat();syncAlertsMap();loadGrid()},S.refresh*6e4)}
+function setTimer(){clearInterval(rtimer);if(S.refresh>0)rtimer=setInterval(()=>{if(document.hidden)return;loadPoint();if(!playing)loadFrames();syncSat();syncAlertsMap();loadGrid()},S.refresh*6e4)}
 function apply(fx){
   renderLegend();
   if(fx==='base')syncBase();
@@ -750,16 +787,16 @@ function apply(fx){
   else if(fx==='speed'){if(playing)play()}
   else if(fx==='sat')syncSat();
   else if(fx==='alerts')syncAlertsMap();
-  else if(fx==='grid')loadGrid();
-  else if(fx==='fetch'){loadPoint();loadGrid()}
-  else if(fx==='units'){render();loadGrid();if(frames.length)showFrame(fi)}
+  else if(fx==='grid'){gKey='';loadGrid()}
+  else if(fx==='fetch'){gKey='';loadPoint();loadGrid()}
+  else if(fx==='units'){render();gKey='';loadGrid();if(frames.length)showFrame(fi)}
   else if(fx==='theme')theme();
   else if(fx==='timer')setTimer();
   else if(fx==='render')render();
 }
 $('opendrawer').onclick=()=>{$('set-json').value=JSON.stringify(S);$('drawer').classList.add('show')};
 $('closedrawer').onclick=()=>$('drawer').classList.remove('show');
-$('shead').onclick=()=>$('app').classList.toggle('open');
+$('shead').onclick=()=>{if(lastFail&&Date.now()>coolUntil){loadPoint();return}$('app').classList.toggle('open')};
 map.on('mousedown touchstart',()=>{$('results').style.display='none'});
 let rz=null;addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(()=>{map.invalidateSize();if(tab==='hourly'&&D)drawStrips()},200)});
 matchMedia('(prefers-color-scheme:dark)').addEventListener('change',theme);
